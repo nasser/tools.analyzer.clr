@@ -67,7 +67,7 @@
       (merge (dissoc ast :class)
              {:op :type
               :type t})
-      (throw (Exception. (str "Could not find type " class))))
+      (throw (System.TypeLoadException. (str "Could not find type " class))))
     ast))
 
 (defn analyze-host-form
@@ -91,7 +91,7 @@
                                                     public-static)]
                {:op :static-property
                 :property property-info}))
-      (throw (Exception. (str "Could not find type " class))))
+      (throw (System.TypeLoadException. (str "Could not find type " class))))
     ast))
 
 (defn analyze-constructor
@@ -107,7 +107,7 @@
                {:constructor ctor-info}
                (if (.IsValueType t)
                  {:op :initobj}
-                 (throw (Exception. (str "Could not find constructor for type " t " with args " args)))))))
+                 (throw (System.TypeLoadException. (str "Could not find constructor for type " t " with args " args)))))))
     ast))
 
 (def default-passes
