@@ -51,7 +51,9 @@
   Object)
 
 (defmethod clr-type :const [ast]
-  (-> ast :val type))
+  (if (= :class (:type ast))
+    (:val ast)
+    (type (:val ast))))
 
 (defmethod clr-type :vector [ast]
   clojure.lang.IPersistentVector)
@@ -61,6 +63,18 @@
 
 (defmethod clr-type :map [ast]
   clojure.lang.IPersistentMap)
+
+(defmethod clr-type :static-method [ast]
+  (-> ast :method .ReturnType))
+
+(defmethod clr-type :instance-method [ast]
+  (-> ast :method .ReturnType))
+
+(defmethod clr-type :static-property [ast]
+  (-> ast :property .PropertyType))
+
+(defmethod clr-type :instance-property [ast]
+  (-> ast :property .PropertyType))
 
 (defmethod clr-type :invoke
   [{:keys [fn args] {:keys [op]} :fn}]
@@ -90,7 +104,7 @@
     ))
 
 (defmethod clr-type :new [ast]
-  (-> ast :class :class resolve))
+  (:type ast))
 
 (defmethod clr-type :maybe-host-form
   [{:keys [class field] :as ast}]

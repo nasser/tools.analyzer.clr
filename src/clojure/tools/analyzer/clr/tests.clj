@@ -3,16 +3,19 @@
   (:use clojure.test))
 
 (defn op? [frm op]
-  (is (= (-> frm clr/analyze :op)
+  (is (= (:op frm)
          op)))
 
-(defn right-type? [frm]
-  (is (= (-> frm clr/analyze :type)
+(defn right-type? [frm frm*]
+  (is (= (-> frm* :val)
          (resolve frm))))
 
 (defn test-type [frm]
-  (and (op? frm :type)
-       (right-type? frm)))
+  (let [frm* (clr/analyze frm)]
+    (and (op? frm* :const)
+         (is (= :class (:type frm*)))
+         (is (= true (:literal? frm*)))
+         (right-type? frm frm*))))
 
 (defn primitive-types []
   (doall (map test-type '[String Int16 Int64 Int32 Single Double
@@ -31,8 +34,9 @@
 (defn imported-type []
   (test-type '(do (import System.IO.File) File)))
 
+;; TODO specific exceptions?
 (defn throw-on-missing-type [frm]
-  (is (thrown? System.TypeLoadException
+  (is (thrown? System.Exception
                (clr/analyze frm))))
 
 (defn missing-types []
@@ -47,12 +51,15 @@
   )
 
 
+;; host 
+
 (defn test-static-property [frm]
-  (and (op? frm :static-property)
-       (is (isa? (-> frm clr/analyze :property type)
-                 System.Reflection.PropertyInfo))
-       (is (= (name frm)
-              (-> frm clr/analyze :property .Name)))))
+  (let [frm* (clr/analyze frm)]
+    (and (op? frm* :static-property)
+         (is (isa? (-> frm* :property type)
+                   System.Reflection.PropertyInfo))
+         (is (= (name frm)
+                (-> frm* :property .Name))))))
 
 (defn static-properties []
   (doall (map test-static-property '[DateTime/Now])))
