@@ -4,6 +4,20 @@
              [util :refer [throw!]]
              [reflection :refer [find-method]]]))
 
+(defn class-for-name [s]
+  (if s
+    (clojure.lang.RT/classForName (str s))))
+
+(defn ensure-class [c form]
+  ;; HACK breaking cyclic require
+  (or (class-for-name c)
+      (clojure.tools.analyzer.clr.errors/error
+        ::clojure.tools.analyzer.clr.errors/missing-type
+        {:type c :form form})))
+
+(defn maybe-class [c]
+  (or (class-for-name c) c))
+
 (defn superchain [t]
   (if-let [b (.BaseType t)]
     (cons b (superchain b))))
