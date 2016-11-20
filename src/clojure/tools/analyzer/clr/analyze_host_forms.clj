@@ -13,10 +13,11 @@
 (defn analyze-type
   "Analyze foo into a type"
   {:pass-info {:walk :post :depends #{} :after #{#'uniquify-locals}}}
-  [{:keys [op class] :as ast}]
+  [{:keys [op children class] :as ast}]
   (if (= :maybe-class op)
     (let [target-type (ensure-class (name class) (:form ast))]
       (merge (dissoc ast :class)
+             {:children (vec (remove #(= % :class) children))}
              {:op :const
               :type :class
               :literal? true
@@ -53,7 +54,7 @@
       (if (= :host-field (:op ast*))
         (if static?
           (error ::error/missing-static-zero-arity ast)
-          (assoc ast :op :dynamic-field))
+          (assoc ast :inexact? true))
         ast*))
     ast))
 
@@ -61,26 +62,30 @@
 ;; e.g. (System.Collections.ArrayList. 12) should know to cast to int
 (defn analyze-constructor
   "Analyze (Foo. a b) into object or valuetype constructor
-  produces :new :new-value-type :new-dynamic"
+  produces :new or :initobj"
   {:pass-info {:walk :post :depends #{} :after #{#'uniquify-locals}}}
-  [{:keys [args class op] :as ast}]
+  [{:keys [args children class op] :as ast}]
   (if (= :new op)
     (let [target-type (clr-type class)]
+      ;; TODO OK to drop :class like this? 
       (merge (dissoc ast :class)
-             {:type target-type}
-             (if (.IsValueType target-type) {:op :new-value-type})
-             (if-let [ctor-info (.GetConstructor target-type (->> args
-                                                                  (map clr-type)
-                                                                  (into-array Type)))]
-               {:constructor ctor-info}
-               ;; no exact match, look for arity match
-               (let [ctors (->> (.GetConstructors target-type)
-                                (filter #(= (count (.GetParameters %))
-                                            (count args))))]
-                 (if (empty? ctors)
-                   (error ::error/missing-constructor-arity ast)
-                   {:op :new-dynamic
-                    :constructors ctors})))))
+             {:type target-type
+              :children (vec (remove #(= % :class) children))}
+             (if (and (.IsValueType target-type)
+                      (empty? args))
+               {:op :initobj}
+               (if-let [ctor-info (.GetConstructor target-type (->> args
+                                                                    (map clr-type)
+                                                                    (into-array Type)))]
+                 {:constructor ctor-info}
+                 ;; no exact match, look for arity match
+                 (let [ctors (->> (.GetConstructors target-type)
+                                  (filter #(= (count (.GetParameters %))
+                                              (count args))))]
+                   (if (empty? ctors)
+                     (error ::error/missing-constructor-arity ast)
+                     {:inexact? true
+                      :constructors ctors}))))))
     ast))
 
 (defn analyze-host-interop
@@ -106,7 +111,7 @@
       (cond matched?                      (dissoc ast* :m-or-f)
             (and static? (empty? args))   (error ::error/missing-static-zero-arity ast)
             static?                       (error ::error/missing-static-method ast)
-            :else                         (assoc ast* :op :dynamic-interop)))
+            :else                         (assoc ast* :inexact? true)))
     ast))
 
 ;; TODO analyze away the identity invoke hack
@@ -116,23 +121,22 @@
   [{:keys [method target args op] :as ast}]
   (if (= :host-call op)
     (let [target-type (clr-type target)]
-      (if-let [meth (.GetMethod target-type (str method) (->> args
-                                                              (map clr-type)
-                                                              (into-array Type)))]
-        (merge ast
-               {:method meth
-                :op (case (-> target :type)
-                      :class :static-method
-                      :instance-method)})
-        ;; no exact match, look for arity match
-        (let [ctors (->> (.GetMethods target-type)
-                         (filter #(and
-                                    (= (str method) (.Name %))
-                                    (= (count (.GetParameters %))
-                                       (count args)))))]
-          (if (empty? ctors)
-            (error ::error/missing-instance-method-arity ast)
-            (merge ast
-                   {:op :dynamic-call
+      (merge ast
+             {:op (case (-> target :type)
+                    :class :static-method
+                    :instance-method)}
+             (if-let [meth (.GetMethod target-type (str method) (->> args
+                                                                     (map clr-type)
+                                                                     (into-array Type)))]
+               {:method meth}
+               ;; no exact match, look for arity match
+               (let [ctors (->> (.GetMethods target-type)
+                                (filter #(and
+                                           (= (str method) (.Name %))
+                                           (= (count (.GetParameters %))
+                                              (count args)))))]
+                 (if (empty? ctors)
+                   (error ::error/missing-instance-method-arity ast)
+                   {:inexact? true
                     :methods ctors})))))
     ast))
