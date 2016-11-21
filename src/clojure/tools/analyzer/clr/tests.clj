@@ -1,5 +1,6 @@
 (ns clojure.tools.analyzer.clr.tests
-  (:require [clojure.tools.analyzer.clr :as clr])
+  (:require [clojure.tools.analyzer.clr :as clr]
+            [clojure.tools.analyzer.clr.types :refer [clr-type]])
   (:use clojure.test))
 
 (defn tests [& fns]
@@ -68,30 +69,62 @@
     'Int63 'System.Prambo))
 
 ;; host 
-(defn inexact [frm frm*]
-  (is (-> frm* :inexact?)))
+(defn inexact [kw]
+  (let [info-type {:methods |System.Reflection.MethodInfo[]|
+                   :constructors |System.Reflection.ConstructorInfo[]|}]
+    (fn [frm frm*]
+      (and (is (-> frm* :inexact?))
+           (is (isa? (-> frm* kw into-array type)
+                     (info-type kw)))
+           (doseq [m (-> frm* kw)]
+             (is (= (-> m .GetParameters count)
+                    (-> frm* :args count))))
+           ))))
 
-(defn exact [frm frm*]
-  (is (not (-> frm* :inexact?))))
+(defn exact [kw]
+  (let [info-type {:method System.Reflection.MethodInfo
+                   :constructor System.Reflection.ConstructorInfo}]
+    (fn [frm frm*]
+      (and (is (not (-> frm* :inexact?)))
+           (is (isa? (-> frm* kw type)
+                     (info-type kw)))
+           (is (= (-> frm* kw .GetParameters count)
+                  (-> frm* :args count)))
+           (is (= (->> frm* kw .GetParameters (map #(.ParameterType %)) vec)
+                  (->> frm* :args (map clr-type) vec)))))))
+
+(defn property [frm frm*]
+  (is (isa? (-> frm* :property type)
+            System.Reflection.PropertyInfo)))
 
 (defn static-property [frm frm*]
   (and (op? frm* :static-property)
-       (is (isa? (-> frm* :property type)
-                 System.Reflection.PropertyInfo))
        (is (= (name frm)
               (-> frm* :property .Name)))))
 
-(deftest static-properties
-  (should-be
-    [static-property]
-    'DateTime/Now))
+(defn instance-property [frm frm*]
+  (and (op? frm* :instance-property)
+       (is (= (-> frm* :form last name)
+              (-> frm* :property .Name)))))
+
+(defn field [frm frm*]
+  (is (isa? (-> frm* :field type)
+            System.Reflection.FieldInfo)))
 
 (defn static-field [frm frm*]
   (and (op? frm* :static-field)
-       (is (isa? (-> frm* :field type)
-                 System.Reflection.FieldInfo))
        (is (= (name frm)
               (-> frm* :field .Name)))))
+
+(defn instance-field [frm frm*]
+  (and (op? frm* :instance-field)
+       (is (= (-> frm* :form last name)
+              (-> frm* :field .Name)))))
+
+(deftest static-properties
+  (should-be
+    [property static-property]
+    'DateTime/Now))
 
 (deftest static-fields
   (should-be
@@ -107,53 +140,18 @@
 (defn static-method [frm frm*]
   (op? frm* :static-method))
 
-(defn arity-match [kw]
-  (let [info-type {:method System.Reflection.MethodInfo
-                   :constructor System.Reflection.ConstructorInfo}]
-    (fn [frm frm*]
-      (and (is (isa? (-> frm* kw type)
-                     (info-type kw)))
-           (is (= (-> frm* kw .GetParameters count)
-                  (-> frm count dec)))))))
-
-(defn all-arity-match [kw]
-  (let [info-type {:methods |System.Reflection.MethodInfo[]|
-                   :constructors |System.Reflection.ConstructorInfo[]|}]
-    (fn [frm frm*]
-      (and (is (isa? (-> frm* kw into-array type)
-                     (info-type kw)))
-           (doseq [m (-> frm* kw)]
-             (is (= (-> m .GetParameters count)
-                    (-> frm count dec))))))))
-
-#_
-(defn static-method [frm frm*]
-  (and (op? frm* :static-method)
-       (is (isa? (-> frm* :method type)
-                 System.Reflection.MethodInfo))
-       (is (= (-> frm first name)
-              (-> frm* :method .Name)))
-       (is (= (-> frm* :method .GetParameters count)
-              (-> frm count dec)))))
-
-(defn static-method-dynamic [frm frm*]
-  (and (is (isa? (-> frm* :methods into-array type)
-                 |System.Reflection.MethodInfo[]|))
-       (doseq [m (-> frm* :methods)]
-         (is (= (-> m .GetParameters count)
-                (-> frm count dec))))
-       (is (= (-> frm first name)
-              (-> frm* :method str)))))
+(defn instance-method [frm frm*]
+  (op? frm* :instance-method))
 
 (deftest static-methods
   (should-be
-    [exact static-method (arity-match :method)]
+    [static-method (exact :method)]
     '(DateTime/Compare DateTime/Now DateTime/Now)
     '(DateTime/FromBinary 89)
     '(DateTime/Parse "89"))
   
   (should-be
-    [inexact static-method (all-arity-match :methods)]
+    [static-method (inexact :methods)]
     '(DateTime/Compare 1 2)
     '(DateTime/FromBinary "89")
     '(DateTime/Parse 1)
@@ -180,27 +178,74 @@
   (should-throw
     '(DateTime. :lots :of :arguments :way :too))
   (should-be
-    [exact constructor (arity-match :constructor)]
+    [constructor (exact :constructor)]
     '(DateTime. 1))
   (should-be
-    [inexact constructor (all-arity-match :constructors)]
+    [constructor (inexact :constructors)]
     '(System.Drawing.Point. 1)
     '(System.Drawing.Point. 1 2)
     '(System.Drawing.Size. 1 2)) 
   (should-be
-    [exact initobj-constructor]
+    [initobj-constructor]
     '(DateTime.)
     '(System.Drawing.Point.)
     '(System.Drawing.Size.)))
 
 (deftest constructors
   (should-be
-    [exact constructor (arity-match :constructor)]
+    [constructor (exact :constructor)]
     '(System.Drawing.Bitmap. "Hello")
     '(System.Drawing.Bitmap. "Hello" false))
   (should-be
-    [inexact constructor (all-arity-match :constructors)]
+    [constructor (inexact :constructors)]
     '(System.Drawing.Bitmap. 8 8)
     '(System.Drawing.Bitmap. :foo :bar))
   (should-throw
     '(System.Drawing.Bitmap.)))
+
+(deftest instance-properties
+  (should-be
+    [property instance-property]
+    '(. (System.Drawing.Font. "Arial" 32) Bold)
+    '(.Bold (System.Drawing.Font. "Arial" 32))
+    '(.. (System.Drawing.Font. "Arial" 32) Bold)
+    '(. (System.Drawing.Bitmap. 45 45) Size)
+    '(.Size (System.Drawing.Bitmap. 45 45))
+    '(.. (System.Drawing.Bitmap. 45 45) Size)
+    '(. DateTime/Now Hour)
+    '(.Hour DateTime/Now)
+    '(.. DateTime/Now Hour)
+    '(.. DateTime/Now (AddDays 89.4) (AddHours 56.7) Hour)))
+
+(deftest instance-fields
+  (should-be
+    [field instance-field]
+    '(. (System.IO.PathData.) Path)
+    '(.Path (System.IO.PathData.))
+    '(.. (System.IO.PathData.) Path)))
+
+(deftest instance-methods
+  (should-be
+    [instance-method (exact :method)]
+    '(. DateTime/Now (AddDays 89.4))
+    '(.. DateTime/Now (AddDays 89.4))
+    '(.AddDays DateTime/Now 89.4)
+    '(.. DateTime/Now (AddDays 89.4) (AddHours 56.7))
+    '(. DateTime/Now (ToBinary))
+    '(.. DateTime/Now (ToBinary))
+    '(. DateTime/Now ToBinary)
+    '(.. DateTime/Now ToBinary)
+    '(.ToBinary DateTime/Now)
+    '(.. DateTime/Now (AddDays 89.4) (AddHours 56.7) ToBinary))
+  (should-be
+    [instance-method (inexact :methods)]
+    '(. DateTime/Now (AddMonths 89))
+    '(.. DateTime/Now (AddMonths 89))
+    '(.AddMonths DateTime/Now 89)
+    '(. DateTime/Now (Subtract 89))
+    '(.. DateTime/Now (Subtract 89))
+    '(.Subtract DateTime/Now 89))
+  (should-throw
+    '(.NotAMethod DateTime/Now)
+    '(.NotAMethod DateTime/Now 99)))
+

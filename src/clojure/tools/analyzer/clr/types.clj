@@ -8,6 +8,7 @@
   (if s
     (clojure.lang.RT/classForName (str s))))
 
+;; TODO look into this, does this do anything useful?  
 (defn maybe-class [c]
   (or (class-for-name c) c))
 

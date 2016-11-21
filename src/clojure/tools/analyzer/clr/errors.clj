@@ -44,6 +44,12 @@
           " for type " (clr-type target)
           " while analyzing form " (user-form ast)))
 
+(defmethod error ::missing-instance-zero-arity
+  [err {:keys [field m-or-f target] :as ast}]
+  (throw! "Could not find instance method, field, or property " (or m-or-f field)
+          " for type " (clr-type target)
+          " while analyzing form " (user-form ast)))
+
 (defmethod error ::missing-instance-method
   [err {:keys [method args target] :as ast}]
   (throw! "Could not find instance method " method

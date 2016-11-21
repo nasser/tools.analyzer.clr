@@ -44,9 +44,10 @@
 
           (.StartsWith opname ".") ; (.foo bar ..)                                    ;;; .startsWith
           (let [[target & args] expr
+                ;; wrap type literals in clojure.core/identity
                 ;; TODO why do we need this???
                 target (if-let [target (and (not (get (:locals env) target))
-                                            (maybe-class target))]
+                                            (class-for-name target))]
                          (with-meta (list 'clojure.core/identity target)
                            {:tag 'System.Type})                                       ;;; java.lang.Class
                          target)

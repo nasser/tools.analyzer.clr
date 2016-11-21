@@ -104,7 +104,7 @@
           static? (= :class (:type target))
           binding-flags (if static? public-static public-instance)
           ast* (merge ast
-                      (when-let [method (.GetMethod target-type (str m-or-f) binding-flags nil Type/EmptyTypes nil)]
+                      (when-let [method (.GetMethod target-type m-or-f binding-flags nil Type/EmptyTypes nil)]
                         {:op (if static? :static-method :instance-method)
                          :method method})
                       (when-let [field (.GetField target-type m-or-f binding-flags)]
@@ -114,15 +114,20 @@
                         {:op (if static? :static-property :instance-property)
                          :property property}))
           matched? (not= :host-interop (:op ast*))]
+      ;; NOTE for runtime dynamic dispatch (when target-type is unknown)
+      ;; we will have no match, :op will remain :host-interop, also keeps :m-or-f
       (cond matched?                      (dissoc ast* :m-or-f)
             (and static? (empty? args))   (error ::errors/missing-static-zero-arity ast)
             static?                       (error ::errors/missing-static-method ast)
+            (and target-type
+                 (not static?)
+                 (empty? args))           (error ::errors/missing-instance-zero-arity ast)
             :else                         (assoc ast* :inexact? true)))
     ast))
 
 ;; TODO analyze away the identity invoke hack
 (defn analyze-host-call
-  "Analyze (Foo/Bar a) into static method invocation"
+  "Analyze (Foo/Bar a) into static method invocation or (.Foo a b c) into an instance method invocation"
   {:pass-info {:walk :post :depends #{} :after #{#'uniquify-locals}}}
   [{:keys [method target args op] :as ast}]
   (if (= :host-call op)
