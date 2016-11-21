@@ -188,7 +188,19 @@
     '(System.Drawing.Point. 1 2)
     '(System.Drawing.Size. 1 2)) 
   (should-be
-    [initobj-constructor]
+    [exact initobj-constructor]
     '(DateTime.)
     '(System.Drawing.Point.)
     '(System.Drawing.Size.)))
+
+(deftest constructors
+  (should-be
+    [exact constructor (arity-match :constructor)]
+    '(System.Drawing.Bitmap. "Hello")
+    '(System.Drawing.Bitmap. "Hello" false))
+  (should-be
+    [inexact constructor (all-arity-match :constructors)]
+    '(System.Drawing.Bitmap. 8 8)
+    '(System.Drawing.Bitmap. :foo :bar))
+  (should-throw
+    '(System.Drawing.Bitmap.)))
