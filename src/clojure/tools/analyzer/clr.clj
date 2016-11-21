@@ -15,8 +15,14 @@
             [clojure.tools.analyzer.utils :refer [resolve-sym ctx -source-info resolve-ns obj? dissoc-env]]
             [clojure.tools.analyzer.clr
              [analyze-host-forms :as host]
-             [errors :refer [error] :as error]
-             [types :refer [clr-type ensure-class maybe-class]]]))
+             [errors :refer [error] :as errors]
+             [types :refer [clr-type class-for-name maybe-class]]]))
+
+(defn ensure-class [c form]
+  (or (class-for-name c)
+      (errors/error
+        ::errors/missing-type
+        {:type c :form form})))
 
 (defn desugar-host-expr [form env]
   (cond

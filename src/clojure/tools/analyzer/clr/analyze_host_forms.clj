@@ -3,12 +3,18 @@
     [clojure.tools.analyzer.passes
      [uniquify :refer [uniquify-locals]]]
     [clojure.tools.analyzer.clr
-     [errors :refer [error] :as error]
-     [types :refer [clr-type ensure-class]]]))
+     [errors :refer [error] :as errors]
+     [types :refer [clr-type class-for-name]]]))
 
 (def public-instance (enum-or BindingFlags/Instance BindingFlags/Public))
 (def public-static (enum-or BindingFlags/Static BindingFlags/Public))
 (def public-instance-static (enum-or BindingFlags/Instance BindingFlags/Static BindingFlags/Public))
+
+(defn ensure-class [c form]
+  (or (class-for-name c)
+      (error
+        ::errors/missing-type
+        {:type c :form form})))
 
 (defn analyze-type
   "Analyze foo into a type"
@@ -53,7 +59,7 @@
                          :property property-info}))]
       (if (= :host-field (:op ast*))
         (if static?
-          (error ::error/missing-static-zero-arity ast)
+          (error ::errors/missing-static-zero-arity ast)
           (assoc ast :inexact? true))
         ast*))
     ast))
@@ -83,7 +89,7 @@
                                   (filter #(= (count (.GetParameters %))
                                               (count args))))]
                    (if (empty? ctors)
-                     (error ::error/missing-constructor-arity ast)
+                     (error ::errors/missing-constructor-arity ast)
                      {:inexact? true
                       :constructors ctors}))))))
     ast))
@@ -109,8 +115,8 @@
                          :property property}))
           matched? (not= :host-interop (:op ast*))]
       (cond matched?                      (dissoc ast* :m-or-f)
-            (and static? (empty? args))   (error ::error/missing-static-zero-arity ast)
-            static?                       (error ::error/missing-static-method ast)
+            (and static? (empty? args))   (error ::errors/missing-static-zero-arity ast)
+            static?                       (error ::errors/missing-static-method ast)
             :else                         (assoc ast* :inexact? true)))
     ast))
 
@@ -136,7 +142,7 @@
                                            (= (count (.GetParameters %))
                                               (count args)))))]
                  (if (empty? ctors)
-                   (error ::error/missing-instance-method-arity ast)
+                   (error ::errors/missing-instance-method-arity ast)
                    {:inexact? true
                     :methods ctors})))))
     ast))

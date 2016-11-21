@@ -8,13 +8,6 @@
   (if s
     (clojure.lang.RT/classForName (str s))))
 
-(defn ensure-class [c form]
-  ;; HACK breaking cyclic require
-  (or (class-for-name c)
-      (clojure.tools.analyzer.clr.errors/error
-        ::clojure.tools.analyzer.clr.errors/missing-type
-        {:type c :form form})))
-
 (defn maybe-class [c]
   (or (class-for-name c) c))
 
