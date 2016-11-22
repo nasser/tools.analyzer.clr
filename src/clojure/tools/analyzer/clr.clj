@@ -14,6 +14,7 @@
             [clojure.tools.analyzer.env :refer [*env* with-env] :as env]
             [clojure.tools.analyzer.utils :refer [resolve-sym ctx -source-info resolve-ns obj? dissoc-env]]
             [clojure.tools.analyzer.clr
+             [novel :as novel]
              [analyze-host-forms :as host]
              [errors :refer [error] :as errors]
              [types :refer [clr-type class-for-name maybe-class]]]))
@@ -149,6 +150,8 @@
     #'host/analyze-constructor   ;; (Foo.)
     #'host/analyze-host-interop  ;; (.foo a)
     #'host/analyze-host-call     ;; (Foo/Bar a)
+    #'novel/csharp-operators
+    #'novel/generic-type-syntax
     #'source-info
     #'cleanup
     #'elide-meta

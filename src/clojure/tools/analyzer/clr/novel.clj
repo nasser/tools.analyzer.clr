@@ -1,6 +1,7 @@
 ;; a place for new ideas
 (ns clojure.tools.analyzer.clr.novel
-  (:require [clojure.tools.analyzer.clr.analyze-host-forms :as host-forms]))
+  (:require [clojure.tools.analyzer.clr.analyze-host-forms :as host-forms]
+            [clojure.string :as string]))
 
 (def operators
   '{++ op_Increment
@@ -35,5 +36,24 @@
     (if-let [operator-method (operators method)]
       (assoc ast :method operator-method
         :novel true)
+      ast)
+    ast))
+
+(defn generic-type-syntax 
+  "Analyze Foo|[String, Int32]| into Foo`2[String, Int32]"
+  {:pass-info {:walk :post :depends #{} :before #{#'host-forms/analyze-type}}}
+  [{:keys [op children class] :as ast}]
+  (if (= :maybe-class op)
+    (if (re-find #"\[" (str class))
+      (let [reader (-> class str
+                       System.IO.StringReader.
+                       clojure.lang.PushbackTextReader.)
+            class-name (read reader)
+            type-args (read reader)
+            type-args-str (str "[" (string/join "," type-args) "]")
+            ]
+        (merge ast {:class (symbol (str class-name
+                                        "`" (count type-args)
+                                        type-args-str))}))
       ast)
     ast))

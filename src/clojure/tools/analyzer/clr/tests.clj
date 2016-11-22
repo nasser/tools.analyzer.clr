@@ -163,11 +163,7 @@
     '(DateTime/Parse :lots :of :arguments :way :too :many)))
 
 (defn constructor [frm frm*]
-  (and (op? frm* :new)
-       (is (or (= (-> frm* :form second name)
-                  (-> frm* :type .Name))
-               (= (-> frm* :form second name)
-                  (-> frm* :type .FullName))))))
+  (op? frm* :new))
 
 (defn initobj-constructor [frm frm*]
   (and (op? frm* :initobj)
@@ -195,11 +191,13 @@
   (should-be
     [constructor (exact :constructor)]
     '(System.Drawing.Bitmap. "Hello")
-    '(System.Drawing.Bitmap. "Hello" false))
+    '(System.Drawing.Bitmap. "Hello" false)
+    '(System.Collections.Generic.List|[String]|.))
   (should-be
     [constructor (inexact :constructors)]
     '(System.Drawing.Bitmap. 8 8)
-    '(System.Drawing.Bitmap. :foo :bar))
+    '(System.Drawing.Bitmap. :foo :bar)
+    '(System.Collections.Generic.List|[String]|. 45))
   (should-throw
     '(System.Drawing.Bitmap.)))
 
@@ -236,7 +234,11 @@
     '(. DateTime/Now ToBinary)
     '(.. DateTime/Now ToBinary)
     '(.ToBinary DateTime/Now)
-    '(.. DateTime/Now (AddDays 89.4) (AddHours 56.7) ToBinary))
+    '(.. DateTime/Now (AddDays 89.4) (AddHours 56.7) ToBinary)
+    '(. (System.Collections.Generic.List|[String]|.) (Add "Hello"))
+    '(. (System.Collections.Generic.List|[Int64]|.) (Add 89))
+    '(. (System.Collections.Generic.List|[System.Drawing.Point]|.)
+      (Add (System.Drawing.Point. 6 7))))
   (should-be
     [instance-method (inexact :methods)]
     '(. DateTime/Now (AddMonths 89))
@@ -244,8 +246,12 @@
     '(.AddMonths DateTime/Now 89)
     '(. DateTime/Now (Subtract 89))
     '(.. DateTime/Now (Subtract 89))
-    '(.Subtract DateTime/Now 89))
+    '(.Subtract DateTime/Now 89)
+    '(. (System.Collections.Generic.List|[Int32]|.) (Add 89))
+    '(. (System.Collections.Generic.List|[Int32]|.) (Add 89.5))
+    '(. (System.Collections.Generic.List|[String]|.) (Add 89.5)))
   (should-throw
     '(.NotAMethod DateTime/Now)
-    '(.NotAMethod DateTime/Now 99)))
+    '(.NotAMethod DateTime/Now 99)
+    '(. (System.Collections.Generic.List|[Int32]|.) (Add 89 78))))
 
