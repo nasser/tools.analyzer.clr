@@ -4,6 +4,12 @@
              [util :refer [throw!]]
              [reflection :refer [find-method]]]))
 
+(defn read-generic-name [name]
+  (let [reader (-> name str
+                 System.IO.StringReader.
+                 clojure.lang.PushbackTextReader.)]
+    [(read reader) (read reader)]))
+
 (defn class-for-name [s]
   (if s
     (clojure.lang.RT/classForName (str s))))
@@ -35,124 +41,15 @@
 
 (defn resolve
   ([t]
-   (or (clojure.core/resolve t)
-       (throw! "Could not resolve " t " as  type.")))
+   (if (symbol? t)
+     (or (clojure.core/resolve t)
+         (throw! "Could not resolve " t " as  type."))
+     t))
   ([t ast]
-   (or (clojure.core/resolve t)
-       (throw! "Could not resolve " t " as  type in " (:form ast)))))
-
-(defmulti clr-type
-  "The CLR type of an AST node"
-  :op)
-
-(defmethod clr-type :default [ast]
-  (throw! "clr-type not implemented for " (pr-str ast)))
-
-(defmethod clr-type :maybe-class
-  [{:keys [class] :as ast}]
-  (resolve class ast))
-
-(defmethod clr-type :var [ast]
-  Object)
-
-(defmethod clr-type :the-var [ast]
-  Object)
-
-(defmethod clr-type :const [ast]
-  (if (= :class (:type ast))
-    (:val ast)
-    (type (:val ast))))
-
-(defmethod clr-type :vector [ast]
-  clojure.lang.IPersistentVector)
-
-(defmethod clr-type :set [ast]
-  clojure.lang.IPersistentSet)
-
-(defmethod clr-type :map [ast]
-  clojure.lang.IPersistentMap)
-
-(defmethod clr-type :static-method [ast]
-  (-> ast :method .ReturnType))
-
-(defmethod clr-type :instance-method [ast]
-  (-> ast :method .ReturnType))
-
-(defmethod clr-type :static-property [ast]
-  (-> ast :property .PropertyType))
-
-(defmethod clr-type :instance-property [ast]
-  (-> ast :property .PropertyType))
-
-(defmethod clr-type :invoke
-  [{:keys [fn args] {:keys [op]} :fn}]
-  (condp = op
-    ;; (class/field args...)
-    :maybe-host-form
-    (let [{:keys [class field]} fn
-          method (or (.GetMethod (resolve class)
-                                 (str field)
-                                 (into-array (map clr-type args)))
-                     (throw! "Could not find method " class "/" field " matching types"))]
-      (.ReturnType method))
-    
-    ;; (fn args...)
-    :var
-    (resolve (or (->> fn
-                      :meta
-                      :arglists
-                      (filter #(= (count %) (count args)))
-                      first
-                      meta
-                      :tag)
-                 'Object))
-    
-    (clr-type fn)
-    ; (throw! "Invoking " op " not supported")
-    ))
-
-(defmethod clr-type :new [ast]
-  (:type ast))
-
-(defmethod clr-type :maybe-host-form
-  [{:keys [class field] :as ast}]
-  (let [class (resolve class)]
-    (or (zero-arity-type class (str field))
-        (throw! "Maybe host form type " (:form ast) " not supported"))))
-
-(defmethod clr-type :host-interop
-  [{:keys [m-or-f target] :as ast}]
-  (let [target-type (clr-type target)]
-    (or (zero-arity-type target-type (str m-or-f))
-        (throw! "Host interop " (:form ast) " not supported"))))
-
-(defmethod clr-type :binding [ast]
-  (or
-    (if-let [init (:init ast)]
-      (clr-type init))
-    (if-let [tag (-> ast :name meta :tag)]
-      (resolve tag))
-    Object))
-
-(defmethod clr-type :local
-  [{:keys [name local arg-id] {:keys [locals]} :env}]
-  (if (= local :arg)
-    (if-let [tag (-> name meta :tag)]
-      (resolve tag)
-      Object)
-    (clr-type (locals name))))
-
-(defmethod clr-type :let [ast]
-  (-> ast :body :ret clr-type))
-
-(defmethod clr-type :if
-  [{:keys [test then else] :as ast}]
-  (let [test-type (clr-type test)
-        else-type (clr-type else)]
-    (if (= test-type else-type)
-      test-type
-      ;; TODO compute common type  
-      Object)))
+   (if (symbol? t)
+     (or (clojure.core/resolve t)
+         (throw! "Could not resolve " t " as  type in " (:form ast)))
+     t)))
 
 ;; TODO warn on truncate?
 (defn convertable? [from to]
@@ -191,3 +88,159 @@
 
 (defn matching-constructors [type params]
   (matching-signatures (.GetConstructors type) params))
+
+(defn method-match?
+  "Does are args convertable to method's parameters?"
+  [method args]
+  (let [params (.GetParameters method)]
+    (and (= (count args)
+            (count params))
+         (->> (map
+                #(convertable? %1 %2)
+                (map #(.ParameterType %) params)
+                args)
+              (remove identity)
+              empty?))))
+
+(defn specificity [sig]
+  (->> (.GetParameters sig)
+       (map #(-> (.ParameterType %) superchain count))
+       (apply +)))
+
+(defmulti clr-type
+  "The CLR type of an AST node"
+  :op)
+
+(defn best-match
+  ;; TODO implement better overload resolution
+  ;; e.g. https://ericlippert.com/2013/12/23/closer-is-better/
+  "Given a sequence of argument ASTs and a sequence of MethodInfos returns
+   the best match"
+  [args methods]
+  (let [arg-types (map clr-type args)]
+    (->> methods
+         (filter #(method-match? % arg-types))
+         first)))
+
+(defmethod clr-type :default [ast]
+  (throw! "clr-type not implemented for :op " (:op ast) " in AST " (pr-str ast)))
+
+;; TODO remove
+(defmethod clr-type nil
+  [ast] (throw! "clr-type not implemented for nil"))
+
+(defmethod clr-type :do
+  [{:keys [ret] :as ast}] (clr-type ret))
+
+(defmethod clr-type :maybe-class
+  [{:keys [class] :as ast}]
+  (resolve class ast))
+
+(defmethod clr-type :var [ast]
+  Object)
+
+(defmethod clr-type :the-var [ast]
+  Object)
+
+(defmethod clr-type :const [ast]
+  (if (= :class (:type ast))
+    System.Type ;; (:val ast) ; oh jesus
+    (type (:val ast))))
+
+(defmethod clr-type :vector [ast]
+  clojure.lang.IPersistentVector)
+
+(defmethod clr-type :set [ast]
+  clojure.lang.IPersistentSet)
+
+(defmethod clr-type :map [ast]
+  clojure.lang.IPersistentMap)
+
+(defmethod clr-type :static-method [ast]
+  (if (ast :inexact?)
+    (.ReturnType (best-match ast :methods))
+    (.ReturnType (ast :method))))
+
+(defmethod clr-type :instance-method [ast]
+  (if (ast :inexact?)
+    (.ReturnType (best-match ast :methods))
+    (.ReturnType (ast :method))))
+
+(defmethod clr-type :static-property [ast]
+  (-> ast :property .PropertyType))
+
+(defmethod clr-type :instance-property [ast]
+  (-> ast :property .PropertyType))
+
+(defmethod clr-type :static-field [ast]
+  (-> ast :field .FieldType))
+
+(defmethod clr-type :instance-field [ast]
+  (-> ast :field .FieldType))
+
+;; TODO dynamics always typed as object?
+(defmethod clr-type :dynamic-field [ast]
+  System.Object)
+
+(defmethod clr-type :invoke
+  [{:keys [fn args]}]
+  (resolve (or (->> fn
+                    :meta
+                    :arglists
+                    (filter #(= (count %) (count args)))
+                    first
+                    meta
+                    :tag)
+               'Object)))
+
+(defmethod clr-type :new [ast]
+  (:type ast))
+
+(defmethod clr-type :initobj [ast]
+  (:type ast))
+
+(defmethod clr-type :maybe-host-form
+  [ast]
+  (throw! "Trying to find type of :maybe-host-form in " ast))
+
+(defmethod clr-type :host-interop
+  [ast]
+  (throw! "Trying to find type of :host-interop in " ast))
+
+(defmethod clr-type :binding [ast]
+  (or
+    (if-let [init (:init ast)]
+      (clr-type init))
+    ;; TODO -> form locals :form meta :tag ??
+    (if-let [tag (-> ast :form meta :tag)]
+      (resolve tag))
+    Object))
+
+(defmethod clr-type :local
+  [{:keys [name form local arg-id] {:keys [locals]} :env}]
+  (if (= local :arg)
+    (if-let [tag (-> form locals :form meta :tag)]
+      (if (symbol? tag)
+        (resolve tag)
+        tag)
+      Object)
+    (clr-type (locals form))))
+
+(defmethod clr-type :let [ast]
+  (-> ast :body :ret clr-type))
+
+(defmethod clr-type :loop [ast]
+  (-> ast :body :ret clr-type))
+
+;; TODO ????
+(defmethod clr-type :recur [ast]
+  nil)
+
+(defmethod clr-type :if
+  [{:keys [test then else] :as ast}]
+  (let [then-type (clr-type then)
+        else-type (clr-type else)]
+    (if (= then-type else-type)
+      then-type
+      ;; TODO compute common type  
+      Object)))

@@ -31,22 +31,34 @@
           " taking " (count args)
           " arguments while analyzing form " (user-form ast)))
 
+(defmethod error ::missing-constructor
+  [err {:keys [args class] :as ast}]
+  (throw! "Could not find constructor for " (clr-type class)
+          " with args " (mapv clr-type args)
+          " while analyzing form " (user-form ast)))
+
 (defmethod error ::missing-static-zero-arity
-  [err {:keys [field m-or-f target] :as ast}]
+  [err {:keys [op field m-or-f target] :as ast}]
   (throw! "Could not find static method, field, or property " (or m-or-f field)
-          " for type " (clr-type target)
+          " for type " (:val target) ;; TODO is this OK?
           " while analyzing form " (user-form ast)))
 
 (defmethod error ::missing-static-method
-  [err {:keys [m-or-f args target] :as ast}]
-  (throw! "Could not find static method " m-or-f
+  [err {:keys [m-or-f method args target] :as ast}]
+  (throw! "Could not find static method " (or m-or-f method)
           " with args " (mapv clr-type args)
-          " for type " (clr-type target)
+          " for type " (:val target) ;; TODO is this OK?
           " while analyzing form " (user-form ast)))
 
 (defmethod error ::missing-instance-zero-arity
   [err {:keys [field m-or-f target] :as ast}]
   (throw! "Could not find instance method, field, or property " (or m-or-f field)
+          " for type " (clr-type target)
+          " while analyzing form " (user-form ast)))
+
+(defmethod error ::missing-instance-field
+  [err {:keys [field m-or-f target] :as ast}]
+  (throw! "Could not find instance field, or property " (or m-or-f field)
           " for type " (clr-type target)
           " while analyzing form " (user-form ast)))
 

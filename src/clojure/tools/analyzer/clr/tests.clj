@@ -147,6 +147,7 @@
   (should-be
     [static-method (exact :method)]
     '(DateTime/Compare DateTime/Now DateTime/Now)
+    '(DateTime/Compare (DateTime.) (DateTime.))
     '(DateTime/FromBinary 89)
     '(DateTime/Parse "89"))
   

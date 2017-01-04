@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [macroexpand-1])
   (:require [clojure.tools.analyzer :as ana]
             [clojure.tools.analyzer.ast :refer [postwalk]]
+            [clojure.tools.analyzer.utils :refer [update-vals]]
             [clojure.tools.analyzer.passes :refer [schedule]]
             [clojure.tools.analyzer.passes
              [source-info :refer [source-info]]
@@ -144,6 +145,20 @@
                 (desugar-host-expr form env)))))
          (desugar-host-expr form env)))))
 
+(def run-passes)
+
+;; TODO move to own file
+(defn deep-passes
+  "Perform passes deeper into the :env and :locals"
+  {:pass-info {:walk :pre :before #{#'host/analyze-type
+                                    #'host/analyze-host-field
+                                    #'host/analyze-constructor
+                                    #'host/analyze-host-interop
+                                    #'host/analyze-host-call}}}
+  [{:keys [op children env] :as ast}]
+  (update-in ast [:env :locals]
+             update-vals #(update-in % [:init] run-passes)))
+
 (def default-passes
   #{#'host/analyze-type          ;; Foo
     #'host/analyze-host-field    ;; Foo/Bar
@@ -152,13 +167,15 @@
     #'host/analyze-host-call     ;; (Foo/Bar a)
     #'novel/csharp-operators
     #'novel/generic-type-syntax
+    #'deep-passes
     #'source-info
-    #'cleanup
+    ; #'cleanup
     #'elide-meta
     #'warn-earmuff
-    #'collect-closed-overs
-    #'add-binding-atom
-    #'uniquify-locals})
+    ; #'collect-closed-overs
+    ; #'add-binding-atom
+    #'uniquify-locals
+    })
 
 (def scheduled-default-passes
   (schedule default-passes))
