@@ -1,7 +1,7 @@
 (ns clojure.tools.analyzer.clr
   (:refer-clojure :exclude [macroexpand-1])
   (:require [clojure.tools.analyzer :as ana]
-            [clojure.tools.analyzer.ast :refer [postwalk]]
+            [clojure.tools.analyzer.ast :refer [nodes]]
             [clojure.tools.analyzer.utils :refer [update-vals]]
             [clojure.tools.analyzer.passes :refer [schedule]]
             [clojure.tools.analyzer.passes
@@ -47,7 +47,9 @@
           (.StartsWith opname ".") ; (.foo bar ..)                                    ;;; .startsWith
           (let [[target & args] expr
                 ;; wrap type literals in clojure.core/identity
-                ;; TODO why do we need this???
+                ;; disambiguates between targeting the type literal or the class
+                ;; cleaned up in later analysis passes
+                ;; e.g. (.GetMethods DateTime) vs (DateTime/Now)
                 target (if-let [target (and (not (get (:locals env) target))
                                             (class-for-name target))]
                          (with-meta (list 'clojure.core/identity target)
@@ -145,33 +147,48 @@
                 (desugar-host-expr form env)))))
          (desugar-host-expr form env)))))
 
+
+;; patch analysis of locals to carry binding inits with them
+;; good type resolution depends on it
+;; defeats the 'useless passes' optimization in tools.analyzer (because the passes are useful)
+(defmethod clojure.tools.analyzer/-analyze-form clojure.lang.Symbol
+  [form env]
+  (merge (clojure.tools.analyzer/analyze-symbol form env)
+         (when-let [{:keys [init children] :as local-binding} (-> env :locals form)]
+           {:init     init
+            :children children})))
+
 (def run-passes)
 
-;; TODO move to own file
-(defn deep-passes
-  "Perform passes deeper into the :env and :locals"
-  {:pass-info {:walk :pre :before #{#'host/analyze-type
-                                    #'host/analyze-host-field
-                                    #'host/analyze-constructor
-                                    #'host/analyze-host-interop
-                                    #'host/analyze-host-call}}}
-  [{:keys [op children env] :as ast}]
-  (update-in ast [:env :locals]
-             update-vals #(update-in % [:init] run-passes)))
+;; TODO where should these go?
+;; TODO clean up
+#_
+(defn collect-nodes
+  [ast kw]
+  (->> ast nodes (filter #(= collect-op (:op %)))))
+
+(defn collect-vars
+  [ast]
+  (if (= :fn (:op ast))
+    (assoc ast :vars (->> ast nodes (filter #(= :var (:op %)))))
+    ast))
+
+(defn collect-vectors
+  [ast]
+  (if (= :fn (:op ast))
+    (assoc ast :vectors (->> ast nodes (filter #(= :vector (:op %)))))
+    ast))
 
 (def default-passes
-  #{#'host/analyze-type          ;; Foo
-    #'host/analyze-host-field    ;; Foo/Bar
-    #'host/analyze-constructor   ;; (Foo.)
-    #'host/analyze-host-interop  ;; (.foo a)
-    #'host/analyze-host-call     ;; (Foo/Bar a)
+  #{#'host/analyze
     #'novel/csharp-operators
     #'novel/generic-type-syntax
-    #'deep-passes
-    #'source-info
+    ; #'source-info
+    ; #'collect-vars
     ; #'cleanup
     #'elide-meta
     #'warn-earmuff
+    #'collect-vars
     ; #'collect-closed-overs
     ; #'add-binding-atom
     #'uniquify-locals

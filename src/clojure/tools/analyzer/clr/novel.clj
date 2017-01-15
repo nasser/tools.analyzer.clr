@@ -31,7 +31,7 @@
 
 (defn csharp-operators
   "Analyze (Foo/+ bar) into (Foo/op_Addition bar)"
-  {:pass-info {:walk :post :depends #{} :before #{#'host-forms/analyze-host-call}}}
+  {:pass-info {:walk :post :depends #{} :before #{#'host-forms/analyze}}}
   [{:keys [method target args op] :as ast}]
   (if (= :host-call op)
     (if-let [operator-method (operators method)]
@@ -42,7 +42,7 @@
 
 (defn generic-type-syntax 
   "Analyze Foo|[String, Int32]| into Foo`2[String, Int32]"
-  {:pass-info {:walk :post :depends #{} :before #{#'host-forms/analyze-type}}}
+  {:pass-info {:walk :post :depends #{} :before #{#'host-forms/analyze}}}
   [{:keys [op children class] :as ast}]
   (if (= :maybe-class op)
     (if (re-find #"\[" (str class))

@@ -36,24 +36,27 @@
   {:pass-info {:walk :post :after #{#'uniquify-locals}}}
   [{:keys [field target op] :as ast}]
   (if (= :host-field op)
-      (let [target-type (clr-type target)
-            static? (= :class (:type target))
+      (let [static? (= :class (:type target))
+            target-type (or (and static?
+                                 (-> target :val))
+                            (clr-type target))
+            field-name (str field)
             binding-flags (if static? public-static public-instance)
             ast* (merge (dissoc ast :field)
                         ;; TODO is it ever a method?
                         (when-let [methods (.GetMethod target-type
-                                                       (str field)
+                                                       field-name
                                                        binding-flags
                                                        nil
                                                        Type/EmptyTypes
                                                        nil)]
                           {:op (if static? :static-method :instance-method)
                            :methods methods})
-                        (when-let [field-info (.GetField target-type (str field)
+                        (when-let [field-info (.GetField target-type field-name
                                                          binding-flags)]
                           {:op (if static? :static-field :instance-field)
                            :field field-info})
-                        (when-let [property-info (.GetProperty target-type (str field)
+                        (when-let [property-info (.GetProperty target-type field-name
                                                                binding-flags)]
                           {:op (if static? :static-property :instance-property)
                            :property property-info}))]
@@ -94,8 +97,6 @@
                                  (error ::errors/missing-constructor ast))))))
     ast))
 
-(def debug (atom nil))
-
 (defn analyze-generic-host-interop
   [{:keys [m-or-f args target op] :as ast}]
   (let [target-type (clr-type target)
@@ -119,6 +120,8 @@
           (into-array Type (map resolve type-args))))
       (error ::errors/missing-instance-method-arity ast))))
 
+(def debug (atom []))
+
 (defn analyze-host-interop
   "Analyze (.foo a) (. a foo) into instance method invocation, field access, or property getter"
   {:pass-info {:walk :post :after #{#'uniquify-locals}}}
@@ -126,13 +129,24 @@
   (if (= :host-interop op)
     (if (re-find #"\[" (str m-or-f))
       (analyze-generic-host-interop ast)
-      (let [target-type (if (= System.Type (clr-type target)) ;; TODO is this right? 
+      (let [identity-hack? (and (= :invoke (-> target :op))
+                               (= :var (-> target :fn :op))
+                               (= #'identity (-> target :fn :var))
+                               (= :const (-> target :args first :op))
+                               (= :class (-> target :args first :type)))
+            target-type (cond
+                          identity-hack?
+                          System.Type
+                          (= System.Type (clr-type target))
                           (:val target)
+                          :else
                           (clr-type target))
             m-or-f (str m-or-f)
             static? (= :class (:type target))
             binding-flags (if static? public-static public-instance)
             ast* (merge ast
+                        (when identity-hack? ;; TODO update :form too?
+                          {:target (-> target :args first)})
                         (when-let [method (.GetMethod target-type m-or-f binding-flags nil Type/EmptyTypes nil)]
                           {:op (if static? :static-method :instance-method)
                            :method method})
@@ -143,15 +157,17 @@
                           {:op (if static? :static-property :instance-property)
                            :property property}))
             matched? (not= :host-interop (:op ast*))]
+        (swap! debug conj target-type)
         ;; NOTE for runtime dynamic dispatch (when target-type is unknown)
-        ;; we will have no match, :op will remain :host-interop, also keeps :m-or-f
+        ;; we will have no match, :op will become :dynamic-method or dynamic-zero-arity
+        ;; also keeps :m-or-f
         (cond matched?                      (dissoc ast* :m-or-f)
-              (and static? (empty? args))   (error ::errors/missing-static-zero-arity ast)
-              static?                       (error ::errors/missing-static-method ast)
+              (and static? (empty? args))   (error ::errors/missing-static-zero-arity ast*)
+              static?                       (error ::errors/missing-static-method ast*)
               (and target-type
                    (not= target-type Object)
                    (not static?)
-                   (empty? args))           (error ::errors/missing-instance-zero-arity ast)
+                   (empty? args))           (error ::errors/missing-instance-zero-arity ast*)
               (empty? args)                 (assoc ast* :op :dynamic-zero-arity)
               :else                         (assoc ast* :op :dynamic-method))))
     ast))
@@ -223,3 +239,15 @@
                              {:method best-method :what-is-this '???}
                              {:op :dynamic-method}))))))))
     ast))
+
+
+;; TODO make into a multimethod
+(defn analyze
+  {:pass-info {:walk :post :after #{#'uniquify-locals}}}
+  [ast]
+  (-> ast
+      analyze-type
+      analyze-host-field
+      analyze-constructor
+      analyze-host-interop
+      analyze-host-call))

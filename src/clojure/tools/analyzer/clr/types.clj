@@ -111,6 +111,15 @@
   "The CLR type of an AST node"
   :op)
 
+(defn non-void-clr-type
+  ([ast]
+   (non-void-clr-type ast Object))
+  ([ast non-void-type]
+   (let [t (clr-type ast)]
+     (if (= t System.Void)
+       non-void-type
+       t))))
+
 (defn best-match
   ;; TODO implement better overload resolution
   ;; e.g. https://ericlippert.com/2013/12/23/closer-is-better/
@@ -127,10 +136,19 @@
 
 ;; TODO remove
 (defmethod clr-type nil
-  [ast] (throw! "clr-type not implemented for nil"))
+  [ast]
+  Object
+  #_
+  (throw! "clr-type not implemented for nil"))
 
 (defmethod clr-type :do
   [{:keys [ret] :as ast}] (clr-type ret))
+
+(defmethod clr-type :set!
+  [{:keys [val] :as ast}] (clr-type val))
+
+(defmethod clr-type :quote
+  [{:keys [expr] :as ast}] (clr-type expr))
 
 (defmethod clr-type :maybe-class
   [{:keys [class] :as ast}]
@@ -145,7 +163,7 @@
 (defmethod clr-type :const [ast]
   (if (= :class (:type ast))
     System.Type ;; (:val ast) ; oh jesus
-    (type (:val ast))))
+    (or (type (:val ast)) Object))) ;; nil -> Object
 
 (defmethod clr-type :vector [ast]
   clojure.lang.IPersistentVector)
@@ -191,6 +209,14 @@
                     first
                     meta
                     :tag)
+               (let [arg-types (map clr-type args)
+                     target-interfaces (-> fn :var deref type .GetInterfaces)
+                     exact-match (->> target-interfaces
+                                      (filter #(= (drop 1 (.GetGenericArguments %))
+                                                  arg-types))
+                                      first)]
+                 (if exact-match
+                   (first (.GetGenericArguments exact-match))))
                'Object)))
 
 (defmethod clr-type :new [ast]
@@ -207,24 +233,28 @@
   [ast]
   (throw! "Trying to find type of :host-interop in " ast))
 
+;; TODO -> form locals :form meta :tag ??
 (defmethod clr-type :binding [ast]
   (or
+    (if-let [tag (-> ast :form meta :tag)]
+      (if (symbol? tag)
+        (resolve tag)
+        tag))
     (if-let [init (:init ast)]
       (clr-type init))
-    ;; TODO -> form locals :form meta :tag ??
-    (if-let [tag (-> ast :form meta :tag)]
-      (resolve tag))
     Object))
 
 (defmethod clr-type :local
-  [{:keys [name form local arg-id] {:keys [locals]} :env}]
-  (if (= local :arg)
-    (if-let [tag (-> form locals :form meta :tag)]
-      (if (symbol? tag)
-        (resolve tag)
-        tag)
-      Object)
-    (clr-type (locals form))))
+  [{:keys [name init form local arg-id] {:keys [locals]} :env}]
+  (let [tag (-> form locals :form meta :tag)]
+    (cond tag
+          (if (symbol? tag)
+            (resolve tag)
+            tag)
+          (= local :arg)
+          Object
+          :else
+          (clr-type init))))
 
 (defmethod clr-type :let [ast]
   (-> ast :body :ret clr-type))
@@ -234,13 +264,15 @@
 
 ;; TODO ????
 (defmethod clr-type :recur [ast]
-  nil)
+  System.Void)
 
 (defmethod clr-type :if
   [{:keys [test then else] :as ast}]
   (let [then-type (clr-type then)
         else-type (clr-type else)]
-    (if (= then-type else-type)
-      then-type
+    (cond
+      (= then-type else-type) then-type
+      (= then-type System.Void) else-type
+      (= else-type System.Void) then-type
       ;; TODO compute common type  
-      Object)))
+      :else Object)))
