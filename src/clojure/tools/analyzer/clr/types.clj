@@ -1,7 +1,7 @@
 (ns clojure.tools.analyzer.clr.types
   (:refer-clojure :exclude [resolve])
   (:require [clojure.tools.analyzer.clr
-             [util :refer [throw!]]
+             [util :refer [throw! var-interfaces]]
              [reflection :refer [find-method]]]))
 
 (defn read-generic-name [name]
@@ -210,7 +210,7 @@
                     meta
                     :tag)
                (let [arg-types (map clr-type args)
-                     target-interfaces (-> fn :var deref type .GetInterfaces)
+                     target-interfaces (var-interfaces fn)
                      exact-match (->> target-interfaces
                                       (filter #(= (drop 1 (.GetGenericArguments %))
                                                   arg-types))
