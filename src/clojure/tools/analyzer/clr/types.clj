@@ -266,13 +266,34 @@
 (defmethod clr-type :recur [ast]
   System.Void)
 
+(defn always-then?
+  "Is an if AST node always true?"
+  [{:keys [op test then else]}]
+  (and (= op :if)
+       (or (and (:literal? test)
+                (not= (:val test) false)
+                (not= (:val test) nil))
+           (and (.IsValueType (clr-type test))
+                (not= Boolean (clr-type test))))))
+
+(defn always-else?
+  "Is an if AST node always false?"
+  [{:keys [op test then else]}]
+  (and (= op :if)
+       (:literal? test)
+       (or (= (:val test) false)
+           (= (:val test) nil))))
+
 (defmethod clr-type :if
   [{:keys [test then else] :as ast}]
   (let [then-type (clr-type then)
         else-type (clr-type else)]
     (cond
       (= then-type else-type) then-type
-      (= then-type System.Void) else-type
+      (always-then? ast) then-type
+      (always-else? ast) else-type
+      ;; TODO do these make sense? are they just for recur?
+      (= then-type System.Void) else-type  
       (= else-type System.Void) then-type
       ;; TODO compute common type  
       :else Object)))
