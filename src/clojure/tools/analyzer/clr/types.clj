@@ -106,11 +106,6 @@
               (remove identity)
               empty?))))
 
-(defn specificity [sig]
-  (->> (.GetParameters sig)
-       (map #(-> (.ParameterType %) superchain count))
-       (apply +)))
-
 (defmulti clr-type
   "The CLR type of an AST node"
   :op)
