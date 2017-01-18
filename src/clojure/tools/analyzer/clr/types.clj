@@ -4,6 +4,12 @@
              [util :refer [throw! var-interfaces]]
              [reflection :refer [find-method]]]))
 
+(defn tag [x]
+  (if-let [t (-> x meta :tag)]
+    (if (symbol? t)
+      (resolve t)
+      t)))
+
 (defn read-generic-name [name]
   (let [reader (-> name str
                  System.IO.StringReader.
