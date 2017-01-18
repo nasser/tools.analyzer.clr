@@ -287,15 +287,17 @@
            (= (:val test) nil))))
 
 (defmethod clr-type :if
-  [{:keys [test then else] :as ast}]
-  (let [then-type (clr-type then)
-        else-type (clr-type else)]
-    (cond
-      (= then-type else-type) then-type
-      (always-then? ast) then-type
-      (always-else? ast) else-type
-      ;; TODO do these make sense? are they just for recur?
-      (= then-type System.Void) else-type  
-      (= else-type System.Void) then-type
-      ;; TODO compute common type  
-      :else Object)))
+  [{:keys [form test then else] :as ast}]
+  (if-let [t (tag form)]
+    t
+    (let [then-type (clr-type then)
+          else-type (clr-type else)]
+      (cond
+        (= then-type else-type) then-type
+        (always-then? ast) then-type
+        (always-else? ast) else-type
+        ;; TODO do these make sense? are they just for recur?
+        (= then-type System.Void) else-type  
+        (= else-type System.Void) then-type
+        ;; TODO compute common type  
+        :else Object))))
