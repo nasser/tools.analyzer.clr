@@ -249,16 +249,19 @@
     Object))
 
 (defmethod clr-type :local
-  [{:keys [name init form local arg-id] {:keys [locals]} :env}]
-  (let [tag (-> form locals :form meta :tag)]
-    (cond tag
-          (if (symbol? tag)
-            (resolve tag)
-            tag)
-          (= local :arg)
-          Object
-          :else
-          (clr-type init))))
+  [{:keys [name init form local by-ref?] {:keys [locals]} :env}]
+  (let [tag (-> form locals :form meta :tag)
+        type (cond tag
+                   (if (symbol? tag)
+                     (resolve tag)
+                     tag)
+                   (= local :arg)
+                   Object
+                   :else
+                   (clr-type init))]
+    (if by-ref?
+      (.MakeByRefType type)
+      type)))
 
 (defmethod clr-type :let [ast]
   (-> ast :body :ret clr-type))

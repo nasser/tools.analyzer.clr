@@ -76,3 +76,13 @@
           " for type " (clr-type target)
           " while analyzing form " (user-form ast)))
 
+(defmethod error ::by-ref-bad-arity
+  [err {:keys [args] :as ast}]
+  (throw! "by-ref requires one argument but got " (count args)
+          " while analyzing form " (user-form ast)))
+
+(defmethod error ::by-ref-not-local
+  [err {:keys [args] :as ast}]
+  (throw! "by-ref requires a local as an argument but got " (-> args first :op)
+          " while analyzing form " (user-form ast)))
+
