@@ -120,8 +120,6 @@
           (into-array Type (map resolve type-args))))
       (error ::errors/missing-instance-method-arity ast))))
 
-(def debug (atom []))
-
 (defn analyze-host-interop
   "Analyze (.foo a) (. a foo) into instance method invocation, field access, or property getter"
   {:pass-info {:walk :post :after #{#'uniquify-locals}}}
@@ -157,7 +155,6 @@
                           {:op (if static? :static-property :instance-property)
                            :property property}))
             matched? (not= :host-interop (:op ast*))]
-        (swap! debug conj target-type)
         ;; NOTE for runtime dynamic dispatch (when target-type is unknown)
         ;; we will have no match, :op will become :dynamic-method or dynamic-zero-arity
         ;; also keeps :m-or-f
@@ -240,12 +237,29 @@
                              {:op :dynamic-method}))))))))
     ast))
 
+(defn analyze-byref
+  "Analyze (by-ref foo) into a CLR pass-by-reference local"
+  [{:keys [op fn args] :as ast}]
+  (if (and (= :invoke op)
+           (= #'by-ref (:var fn)))
+    (cond (not= 1 (count args))
+          (error ::errors/by-ref-bad-arity ast)
+          (not= :local (-> args first :op))
+          (error ::errors/by-ref-not-local ast)
+          :else
+          (assoc
+            (first args)
+            :by-ref? true))
+    ast))
+
+
 
 ;; TODO make into a multimethod
 (defn analyze
   {:pass-info {:walk :post :after #{#'uniquify-locals}}}
   [ast]
   (-> ast
+      analyze-byref
       analyze-type
       analyze-host-field
       analyze-constructor

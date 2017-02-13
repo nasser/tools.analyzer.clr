@@ -51,6 +51,10 @@
          (throw! "Could not resolve " t " as  type in " (:form ast)))
      t)))
 
+(defn tag [x]
+  (if-let [t (-> x meta :tag)]
+    (resolve t)))
+
 ;; TODO warn on truncate?
 (defn convertable? [from to]
   (or (and (nil? from) (nil? to))
@@ -101,11 +105,6 @@
                 args)
               (remove identity)
               empty?))))
-
-(defn specificity [sig]
-  (->> (.GetParameters sig)
-       (map #(-> (.ParameterType %) superchain count))
-       (apply +)))
 
 (defmulti clr-type
   "The CLR type of an AST node"
@@ -245,16 +244,19 @@
     Object))
 
 (defmethod clr-type :local
-  [{:keys [name init form local arg-id] {:keys [locals]} :env}]
-  (let [tag (-> form locals :form meta :tag)]
-    (cond tag
-          (if (symbol? tag)
-            (resolve tag)
-            tag)
-          (= local :arg)
-          Object
-          :else
-          (clr-type init))))
+  [{:keys [name init form local by-ref?] {:keys [locals]} :env}]
+  (let [tag (-> form locals :form meta :tag)
+        type (cond tag
+                   (if (symbol? tag)
+                     (resolve tag)
+                     tag)
+                   (= local :arg)
+                   Object
+                   :else
+                   (clr-type init))]
+    (if by-ref?
+      (.MakeByRefType type)
+      type)))
 
 (defmethod clr-type :let [ast]
   (-> ast :body :ret clr-type))
@@ -285,15 +287,17 @@
            (= (:val test) nil))))
 
 (defmethod clr-type :if
-  [{:keys [test then else] :as ast}]
-  (let [then-type (clr-type then)
-        else-type (clr-type else)]
-    (cond
-      (= then-type else-type) then-type
-      (always-then? ast) then-type
-      (always-else? ast) else-type
-      ;; TODO do these make sense? are they just for recur?
-      (= then-type System.Void) else-type  
-      (= else-type System.Void) then-type
-      ;; TODO compute common type  
-      :else Object)))
+  [{:keys [form test then else] :as ast}]
+  (if-let [t (tag form)]
+    t
+    (let [then-type (clr-type then)
+          else-type (clr-type else)]
+      (cond
+        (= then-type else-type) then-type
+        (always-then? ast) then-type
+        (always-else? ast) else-type
+        ;; TODO do these make sense? are they just for recur?
+        (= then-type System.Void) else-type  
+        (= else-type System.Void) then-type
+        ;; TODO compute common type  
+        :else Object))))
