@@ -4,7 +4,8 @@
     [uniquify :refer [uniquify-locals]]]
    [clojure.tools.analyzer.clr
     [errors :refer [error] :as errors]
-    [types :refer [read-generic-name clr-type class-for-name best-match]]]))
+    [types :refer [read-generic-name clr-type class-for-name best-match]]])
+  (:import [System.Reflection BindingFlags]))
 
 (def public-instance (enum-or BindingFlags/Instance BindingFlags/Public))
 (def public-static (enum-or BindingFlags/Static BindingFlags/Public))
